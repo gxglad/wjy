@@ -15,28 +15,181 @@
     });
   };
 
-  /* ═══════ 1. 载入 ═══════ */
-  (function loader() {
-    var el = $('#loader'), pct = $('#loaderPct'), n = 0;
-    var t = setInterval(function () {
-      n = Math.min(100, n + Math.random() * 17 + 5);
-      if (pct) pct.textContent = Math.floor(n);
-      if (n >= 100) {
-        clearInterval(t);
-        setTimeout(function () {
-          el.classList.add('done');
-          document.body.classList.add('ready');
-          setTimeout(function () { el.style.display = 'none'; }, 950);
-        }, 380);
+  /* ═══════ 1. 点火 · 入场动画 ═══════ */
+  (function intro() {
+    var el = document.getElementById('intro');
+    if (!el) return;
+
+    /* 入场期间锁死滚动，并把页面钉在最顶端（含刷新后恢复位置的兜底） */
+    var lockedY = 0;
+    document.body.classList.add('locked');
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+    window.scrollTo(0, 0);
+    function keepTop() {
+      if (closed) return;
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+    }
+    addEventListener('scroll', keepTop, { passive: true });
+    var topTimer = setInterval(keepTop, 120);
+
+    var pctEl = document.getElementById('introPct');
+    var barEl = document.getElementById('introBar');
+    var stEl  = document.getElementById('introStatus');
+    var quote = document.getElementById('introQuote');
+    var skip  = document.getElementById('introSkip');
+    var fx    = document.getElementById('introFx');
+
+    /* 1a. 台词逐字砸出 */
+    var TEXT = quote ? quote.textContent.trim() : '';
+    var CH_START = 2050, CH_STEP = 92;
+    if (quote) {
+      quote.textContent = '';
+      TEXT.split('').forEach(function (c, i) {
+        var s = document.createElement('span');
+        s.className = 'ch';
+        s.textContent = c;
+        s.style.animationDelay = (CH_START + i * CH_STEP) + 'ms';
+        quote.appendChild(s);
+      });
+    }
+    var QUOTE_END = CH_START + TEXT.length * CH_STEP;
+
+    /* 1b. 进度条：与动画节奏同步推进 */
+    var STAGES = [
+      [0,    '正在点燃火种'],
+      [1350, '火种共鸣中'],
+      [2100, '逐火之途开启'],
+      [3050, '黄金之血苏醒'],
+      [3750, '翁法罗斯']
+    ];
+    var t0 = performance.now();
+    var DUR = QUOTE_END + 950;
+
+    function tick(now) {
+      var p = Math.min(1, (now - t0) / DUR);
+      // 前段快、后段缓，像点火一样「先炸后稳」
+      var e = p < .55 ? (p / .55) * .78 : .78 + ((p - .55) / .45) * .22;
+      var pct = Math.min(100, Math.round(e * 100));
+      if (pctEl) pctEl.textContent = pct;
+      if (barEl) barEl.style.width = pct + '%';
+      if (stEl) {
+        var label = STAGES[0][1];
+        for (var i = 0; i < STAGES.length; i++) if (now - t0 >= STAGES[i][0]) label = STAGES[i][1];
+        if (stEl.textContent !== label) stEl.textContent = label;
       }
-    }, 150);
-    // 兜底：无论如何 3.2 秒后必开
-    setTimeout(function () {
-      clearInterval(t);
+      if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    /* 1c. 粒子爆发（canvas） */
+    var stopFx = null;
+    if (fx && !REDUCED) {
+      var ctx = fx.getContext('2d');
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var W, H, bursts = [], sparks = [], running = true;
+
+      function size() {
+        W = fx.width  = Math.floor(innerWidth * dpr);
+        H = fx.height = Math.floor(innerHeight * dpr);
+        fx.style.width = innerWidth + 'px';
+        fx.style.height = innerHeight + 'px';
+      }
+      size();
+      addEventListener('resize', size, { passive: true });
+
+      function burst(delay, power) {
+        bursts.push({ at: performance.now() + delay, power: power, fired: false });
+      }
+      // 点火瞬间 + 描线完成时，各炸一次
+      burst(1360, 1);
+      burst(1760, .55);
+
+      function fire(power) {
+        var cx = W / 2, cy = H / 2;
+        var n = Math.round(150 * power) + 60;
+        for (var i = 0; i < n; i++) {
+          var a = Math.random() * Math.PI * 2;
+          var sp = (Math.random() * 12 + 2.5) * power * dpr;
+          sparks.push({
+            x: cx, y: cy,
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            r: (Math.random() * 2.2 + .6) * dpr,
+            a: 1, decay: Math.random() * .016 + .008,
+            drag: .955 - Math.random() * .02,
+            c: Math.random() < .3 ? '#fffdf2' : (Math.random() < .6 ? '#ffe9a8' : '#d4af37')
+          });
+        }
+        // 追加一圈长条火星
+        for (var j = 0; j < 42; j++) {
+          var aa = (j / 42) * Math.PI * 2 + Math.random() * .1;
+          var ss = (Math.random() * 20 + 14) * power * dpr;
+          sparks.push({
+            x: cx, y: cy, vx: Math.cos(aa) * ss, vy: Math.sin(aa) * ss,
+            r: (Math.random() * 1.4 + .5) * dpr, a: 1, decay: .012, drag: .972,
+            streak: true, c: '#ffe9a8'
+          });
+        }
+      }
+
+      function loop() {
+        if (!running) return;
+        var now = performance.now();
+        for (var i = 0; i < bursts.length; i++) {
+          if (!bursts[i].fired && now >= bursts[i].at) { bursts[i].fired = true; fire(bursts[i].power); }
+        }
+        ctx.clearRect(0, 0, W, H);
+        for (var k = sparks.length - 1; k >= 0; k--) {
+          var s = sparks[k];
+          s.x += s.vx; s.y += s.vy;
+          s.vx *= s.drag; s.vy *= s.drag;
+          s.vy += .12 * dpr;              // 轻微重力，火星下坠
+          s.a -= s.decay;
+          if (s.a <= 0) { sparks.splice(k, 1); continue; }
+          ctx.globalAlpha = Math.max(0, s.a);
+          ctx.fillStyle = s.c;
+          if (s.streak) {
+            ctx.strokeStyle = s.c;
+            ctx.lineWidth = s.r;
+            ctx.beginPath();
+            ctx.moveTo(s.x, s.y);
+            ctx.lineTo(s.x - s.vx * .9, s.y - s.vy * .9);
+            ctx.stroke();
+          } else {
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r, 0, 6.2832);
+            ctx.fill();
+          }
+        }
+        ctx.globalAlpha = 1;
+        requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+      stopFx = function () { running = false; };
+    }
+
+    /* 1d. 收尾 */
+    var closed = false;
+    function finish() {
+      if (closed) return;
+      closed = true;
+      if (stopFx) stopFx();
+      clearInterval(topTimer);
+      removeEventListener('scroll', keepTop);
+      // 交棒前先钉回顶端，再从 0 开始滚动旅程
+      if (!location.hash) window.scrollTo(0, 0);
       el.classList.add('done');
+      document.body.classList.remove('locked');
       document.body.classList.add('ready');
-      setTimeout(function () { el.style.display = 'none'; }, 950);
-    }, 3200);
+      setTimeout(function () { el.style.display = 'none'; }, 800);
+    }
+    var hideAt = REDUCED ? 700 : DUR + 620;
+    setTimeout(finish, hideAt);
+    if (skip) skip.addEventListener('click', finish);
+    addEventListener('keydown', function (e) {
+      if (!closed && (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ')) finish();
+    });
+    // 兜底：绝不超过 9 秒
+    setTimeout(finish, 9000);
   })();
 
   /* ═══════ 2. 星尘 · 火种粒子 ═══════ */
@@ -291,14 +444,73 @@
     });
     el.addEventListener('click', function (e) { if (moved > 6) { e.preventDefault(); e.stopPropagation(); } }, true);
 
-    function onScrollRail() {
+    /* ── 可拖动的长卷轴 ── */
+    var railBox = document.getElementById('scrollRail');
+    var railThumb = document.getElementById('railThumb');
+
+    function pct() {
       var max = el.scrollWidth - el.clientWidth;
-      var p = max > 0 ? el.scrollLeft / max : 0;
-      if (rail) rail.style.width = (8 + p * 92) + '%';
+      return max > 0 ? el.scrollLeft / max : 0;
     }
-    el.addEventListener('scroll', onScrollRail, { passive: true });
-    addEventListener('resize', onScrollRail, { passive: true });
-    onScrollRail();
+    /** 把滑块放到对应位置（fill 宽度跟随 thumb 中心） */
+    function paint() {
+      var p = pct();
+      if (rail) rail.style.width = (p * 100) + '%';
+      if (railThumb) railThumb.style.left = (p * 100) + '%';
+      if (railBox) railBox.setAttribute('aria-valuenow', Math.round(p * 100));
+    }
+    el.addEventListener('scroll', paint, { passive: true });
+    addEventListener('resize', paint, { passive: true });
+
+    if (railBox) {
+      var railDown = false;
+      /** 把指针的 x 换算成 scrollLeft */
+      function seekTo(clientX, smooth) {
+        var r = railBox.getBoundingClientRect();
+        var p = (clientX - r.left) / r.width;
+        p = Math.max(0, Math.min(1, p));
+        var max = el.scrollWidth - el.clientWidth;
+        el.scrollTo({ left: p * max, behavior: smooth ? 'smooth' : 'auto' });
+      }
+      railBox.addEventListener('pointerdown', function (e) {
+        railDown = true;
+        railBox.classList.add('dragging');
+        railBox.setPointerCapture(e.pointerId);
+        // 点哪跳哪：不按住滑块也能直接定位
+        seekTo(e.clientX, false);
+        e.preventDefault();
+      });
+      railBox.addEventListener('pointermove', function (e) {
+        if (!railDown) return;
+        seekTo(e.clientX, false);
+      });
+      function railUp(e) {
+        if (!railDown) return;
+        railDown = false;
+        railBox.classList.remove('dragging');
+        try { railBox.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      }
+      railBox.addEventListener('pointerup', railUp);
+      railBox.addEventListener('pointercancel', railUp);
+
+      // 键盘：焦点在轴上时左右键微调
+      railBox.addEventListener('keydown', function (e) {
+        var step = el.clientWidth * .5;
+        if (e.key === 'ArrowRight') { el.scrollBy({ left: step, behavior: 'smooth' }); e.preventDefault(); }
+        if (e.key === 'ArrowLeft')  { el.scrollBy({ left: -step, behavior: 'smooth' }); e.preventDefault(); }
+        if (e.key === 'Home') { el.scrollTo({ left: 0, behavior: 'smooth' }); e.preventDefault(); }
+        if (e.key === 'End')  { el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' }); e.preventDefault(); }
+      });
+
+      // 滚轮停在轴上 → 也推动长卷
+      railBox.addEventListener('wheel', function (e) {
+        var d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        el.scrollLeft += d;
+        e.preventDefault();
+      }, { passive: false });
+    }
+
+    paint();
 
     // 键盘左右
     addEventListener('keydown', function (e) {
