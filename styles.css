@@ -628,6 +628,18 @@ section{position:relative;z-index:3}
 .foot-glyph{font-size:34px;color:var(--gold);opacity:.55;line-height:1;margin-bottom:14px}
 .foot p{margin:0 0 8px;font-size:13px;letter-spacing:.2em;color:var(--ink-dim)}
 .foot-sub{font-size:11px;letter-spacing:.1em;color:var(--ink-mute)}
+/* 技术支持署名 */
+.foot-tech{
+  display:inline-flex;align-items:center;gap:12px;
+  font-size:12.5px;letter-spacing:.16em;color:var(--gold-mid);
+  margin:14px 0 16px;padding:9px 22px;border-radius:100px;
+  border:1px solid var(--gold-faint);background:rgba(212,175,55,.045);
+}
+.foot-tech::before,.foot-tech::after{
+  content:'';width:22px;height:1px;flex:none;
+  background:linear-gradient(90deg,transparent,var(--gold-dim));
+}
+.foot-tech::after{transform:scaleX(-1)}
 
 /* ---------- 12. 详情面板 ---------- */
 .detail{position:fixed;inset:0;z-index:90;visibility:hidden;pointer-events:none}
