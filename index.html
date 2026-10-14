@@ -15,6 +15,20 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Noto+Serif+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
+<script>
+/* 首屏必须从最顶端开始：抢在浏览器恢复滚动位置之前关掉它。
+   这一段必须内联、且早于任何渲染，否则刷新后会停在半路。 */
+(function () {
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  window.scrollTo(0, 0);
+  // 带 #锚点 进来时不强拉回顶部（那是用户主动要去的区块）
+  var hash = location.hash && location.hash.length > 1;
+  if (hash) {
+    // 有锚点：等浏览器跳完，把渲染前那次 0 覆盖掉即可
+    window.addEventListener('load', function () { if (location.hash) { var t = document.querySelector(location.hash); if (t) t.scrollIntoView(); } });
+  }
+})();
+</script>
 </head>
 <body>
 
@@ -26,23 +40,54 @@
 <div class="cursor-dot" aria-hidden="true"></div>
 <div class="scroll-progress" aria-hidden="true"><span id="progressBar"></span></div>
 
-<!-- ══════════ 载入 ══════════ -->
-<div class="loader" id="loader">
-  <div class="loader-inner">
-    <svg class="loader-loop" viewBox="0 0 200 100" aria-hidden="true">
-      <path id="loopPath" d="M100,50 C100,10 160,10 160,50 C160,90 100,90 100,50 C100,10 40,10 40,50 C40,90 100,90 100,50 Z"
-            fill="none" stroke="url(#lg)" stroke-width="2" stroke-linecap="round"/>
+<!-- ══════════ 点火 · 入场动画 ══════════ -->
+<div class="intro" id="intro">
+  <canvas class="intro-fx" id="introFx" aria-hidden="true"></canvas>
+  <div class="intro-rays" aria-hidden="true"></div>
+
+  <div class="intro-shock" aria-hidden="true"></div>
+  <div class="intro-shock s2" aria-hidden="true"></div>
+  <div class="intro-core" aria-hidden="true"></div>
+  <div class="intro-flash" aria-hidden="true"></div>
+
+  <div class="intro-stage">
+    <p class="intro-brand"><span>翁法罗斯</span><em>AMPHOREUS</em></p>
+
+    <svg class="intro-loop" viewBox="0 0 600 300" aria-hidden="true">
       <defs>
-        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#d4af37" stop-opacity="0"/>
-          <stop offset="50%" stop-color="#ffe9a8" stop-opacity="1"/>
-          <stop offset="100%" stop-color="#d4af37" stop-opacity="0"/>
+        <linearGradient id="ig" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#7d6118"/>
+          <stop offset="22%" stop-color="#ffe9a8"/>
+          <stop offset="50%" stop-color="#fffdf2"/>
+          <stop offset="78%" stop-color="#ffe9a8"/>
+          <stop offset="100%" stop-color="#7d6118"/>
         </linearGradient>
+        <filter id="iglow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="9" result="b"/>
+          <feMerge>
+            <feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="b"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
       </defs>
+      <path class="il-halo" filter="url(#iglow)" d="M300,150 C300,97.5 490,97.5 490,150 C490,202.5 300,202.5 300,150 C300,97.5 110,97.5 110,150 C110,202.5 300,202.5 300,150 Z"/>
+      <path class="il-trace" pathLength="1000" d="M300,150 C300,97.5 490,97.5 490,150 C490,202.5 300,202.5 300,150 C300,97.5 110,97.5 110,150 C110,202.5 300,202.5 300,150 Z"/>
+      <path class="il-pulse" pathLength="1000" d="M300,150 C300,97.5 490,97.5 490,150 C490,202.5 300,202.5 300,150 C300,97.5 110,97.5 110,150 C110,202.5 300,202.5 300,150 Z"/>
     </svg>
-    <p class="loader-text">正在点燃火种…</p>
-    <p class="loader-count"><span id="loaderPct">0</span>%</p>
+
+    <p class="intro-quote" id="introQuote">逐火是不断失却的旅途</p>
+    <p class="intro-sub">但倘若黎明从不存在，就让怒火燃尽此身</p>
   </div>
+
+  <div class="intro-foot">
+    <div class="intro-bar"><i id="introBar"></i></div>
+    <div class="intro-status">
+      <span id="introStatus">正在点燃火种</span>
+      <b><span id="introPct">0</span>%</b>
+    </div>
+  </div>
+
+  <button class="intro-skip" id="introSkip" type="button">跳过 · SKIP</button>
 </div>
 
 <!-- ══════════ 导航 ══════════ -->
@@ -141,7 +186,12 @@
       <p class="scroll-hint">横向滚动 · 或拖动长卷 · 点击展开档案</p>
     </div>
     <div class="scroll-track" id="scrollTrack"></div>
-    <div class="scroll-rail"><div class="scroll-rail-fill" id="railFill"></div></div>
+    <div class="scroll-rail" id="scrollRail" role="slider" tabindex="0"
+         aria-label="逐火长卷拖动条" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="scroll-rail-fill" id="railFill"></div>
+      <div class="scroll-rail-thumb" id="railThumb" aria-hidden="true"></div>
+    </div>
+    <p class="rail-hint">← 拖动这根轴，翻阅长卷 →</p>
   </div>
 </section>
 
